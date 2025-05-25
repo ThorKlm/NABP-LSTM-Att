@@ -78,6 +78,7 @@ def get_model():
 
     emb_cdr_ids = Embedding(NB_WORDS_cdr, EMBEDDING_DIM, trainable=True)(cdrs_ids)
     emb_cdr_number_ids = Embedding(NB_cdr_number_ids, EMBEDDING_DIM, trainable=True)(cdrs_number_ids)
+
     emb_cdr = Add()([emb_cdr_ids, emb_cdr_number_ids ])
     emb_cdr_bn = BatchNormalization()(emb_cdr)
     emb_cdr_dt = Dropout(dt_ratio)(emb_cdr_bn)
