@@ -52,7 +52,6 @@ for group in groups:
 with open('data/asPICKLE/intra_group_binding.pickle', 'wb') as binary_writer:
     pickle.dump(intra_group_binding, binary_writer)
 
-
 id = 0
 for i in range(0, len(groups)-1):
     group_i = groups[i]

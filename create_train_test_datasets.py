@@ -134,6 +134,9 @@ train_CDR_antigen = []
 val_CDR_antigen = []
 test_CDR_antigen = []
 
+def merge_cdrs(cdr1, cdr2, cdr3, linker="XXX"):
+    return cdr1 + linker + cdr2 + linker + cdr3
+
 for item in train_data_all:
     CDR_1 = (item[0], item[1], item[2], item[5], item[6], 1)
     CDR_2 = (item[0], item[1], item[3], item[5], item[6], 2)
@@ -167,6 +170,7 @@ with open('data/asPICKLE/val_CDR_antigen.pickle', 'wb') as binary_writer:
     pickle.dump(val_CDR_antigen, binary_writer)
 with open('data/asPICKLE/test_CDR_antigen.pickle', 'wb') as binary_writer:
     pickle.dump(test_CDR_antigen, binary_writer)
+
 
 print('size of train_CDR_antigen data is ', str(len(train_CDR_antigen)))
 print('size of val_CDR_antigen data is ', str(len(val_CDR_antigen)))
