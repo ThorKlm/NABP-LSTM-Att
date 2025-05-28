@@ -14,13 +14,12 @@ This research introduces NABP-LSTM-Att, a deep learning model designed to predic
     2) read_CSVs.py: This file contains the code for preprocessing the raw data of SAbDab-nano, which was obtained from the previous code. This code generates a pickle file for the data after applying the rules and a fasta file containing the nanobody sequences, named "nanobody_seqs.fasta".
     3) Run the remove_redundancy.py to remove redundancies with a similarity threshold of 98%.
     4) prepareAntigenSeqs.py: This file contains the code for preparing the antigen sequences following the removal of redundancy in the nanobody sequences. This code generates a FASTA file containing the antigen sequences named "antigen_seqs_after_nanobody_identity98.fasta".
-    5) Execute the cd-hit command: "cd-hit -i antigen_seqs_after_nanobody_identiy98.fasta -o antigen_seqs_after_nanobody_identiy98_90.fasta -c 0.90 -n 5" to classify the pre-processed complexes into subgroups based on antigen sequences, applying a sequence identity threshold of 0.90. The input file is "antigen_seqs_after_nanobody_identiy98.fasta," while the output file is "antigen_seqs_after_nanobody_identiy98_90.fasta." Additionally, there is another output file named "antigen_seqs_after_nanobody_identiy98_90.fasta.clstr," which contains the sub-groups of the antigen sequences.
-    6) create_intra_inter_group_binding.py: This file contains the code for establishing intra- and inter-group binding data.
-    7) Utilize Clustal Omega at "https://www.ebi.ac.uk/jdispatcher/msa/clustalo" to construct the phylogenetic tree of the antigen sequences. Input the file "antigen_seqs_after_nanobody_identiy98.fasta" into the Clustal Omega website. Following the generation of the phylogenetic tree, the complexes are organized into five clusters, which are saved in the "clusters.csv" file.    
-    8) phylogenetic_tree_clusters.py: This file includes the code for storing the clusters of the phylogenetic tree in a pickle file.
-    9) create_train_test_datasets.py:  This file contains the code for generating the training dataset, which comprises 80% of the data, and the testing dataset, which constitutes 20% of the data, as explained in the paper "data section".
-    10) createTSV.py: This script generates TSV files for the CDRs and antigen sequences, requiring specification of the k-mer for their representation.
-    11) embedding.py: This script is designed to embed the CDRs and antigen sequences into feature vectors.
+    5) create_intra_inter_group_binding.py: This file contains the code for establishing intra- and inter-group binding data.
+    6) Utilize Clustal Omega at "https://www.ebi.ac.uk/jdispatcher/msa/clustalo" to construct the phylogenetic tree of the antigen sequences. Input the file "antigen_seqs_after_nanobody_identiy98.fasta" into the Clustal Omega website. Following the generation of the phylogenetic tree, the complexes are organized into five clusters, which are saved in the "clusters.csv" file.    
+    7) phylogenetic_tree_clusters.py: This file includes the code for storing the clusters of the phylogenetic tree in a pickle file.
+    8) create_train_test_datasets.py:  This file contains the code for generating the training dataset, which comprises 80% of the data, and the testing dataset, which constitutes 20% of the data, as explained in the paper "data section".
+    9) createTSV.py: This script generates TSV files for the CDRs and antigen sequences, requiring specification of the k-mer for their representation.
+    10) embedding.py: This script is designed to embed the CDRs and antigen sequences into feature vectors.
             
 - model.py
 
