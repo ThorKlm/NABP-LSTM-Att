@@ -21,8 +21,11 @@ with open(phylogenetic_tree_clusters_file_path, 'r') as file:
         complexes = line.split(',')
         for com in complexes:
             if len(com)>0 and (not com.isnumeric()):
-                item = data[com.strip()]
-                cluster.append((item[0], item[2], item[8], item[9], item[10], item[17]))
+                try:
+                    item = data[com.strip()]
+                    cluster.append((item[0], item[2], item[8], item[9], item[10], item[17]))
+                except:
+                    True
 
         cls = cluster.copy()
         clusters.append(cls)

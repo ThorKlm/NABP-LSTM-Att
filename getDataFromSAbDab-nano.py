@@ -1,4 +1,4 @@
-#This script aims to get the data of Nanobodies and their binding antigens from SAbDab-nano database to 3 csv folders
+#This script aims to get the data_prev of Nanobodies and their binding antigens from SAbDab-nano database to 3 csv folders
 # each folder contacin number of csvs based on fvs number 
 
 import requests
@@ -17,6 +17,7 @@ def getAllRecords():
     return data
 
 def writeDataToCSV(recordType, data):
+    os.makedirs(recordType, exist_ok=True)
     fvsNumber = int(data["basic_data"]["Number of Fvs"])
     empty_6_items = ["","","","","",""]
     empty_3_items = ["","",""]
@@ -230,44 +231,112 @@ def removeUnit(value):
         newValue = re.findall(r"[-+]?(?:\d*\.*\d+)", value)
         return newValue[0]
 
-os.makedirs('./data/nano')
-os.makedirs('./data/anti')
-os.makedirs('./data/combined')
+def is_pdb_processed(recordType, fvsNumber, pdb_code):
+    file_path = os.path.join(recordType, f"{fvsNumber}.csv")
+    if not os.path.exists(file_path):
+        return False
+    with open(file_path, 'r', encoding='utf8') as f:
+        return any(pdb_code in line for line in f)
+
+def get_processed_pdbs():
+    processed = set()
+    for folder in ['nano', 'anti', 'combined']:
+        if not os.path.exists(folder):
+            continue
+        for filename in os.listdir(folder):
+            if filename.endswith('.csv'):
+                with open(os.path.join(folder, filename), encoding='utf8') as f:
+                    next(f)  # skip header
+                    for line in f:
+                        pdb_code = line.split(',')[0].strip()
+                        processed.add(pdb_code)
+    return processed
+
+os.makedirs('./data/nano', exist_ok=True)
+os.makedirs('./data/anti', exist_ok=True)
+os.makedirs('./data/combined', exist_ok=True)
 
 baseUrl = "https://opig.stats.ox.ac.uk/"
-allRecordsEndPoint = "webapps/sabdab-sabpred/sabdab/nanobodies/?all=true"
+allRecordsEndPoint = "webapps/sabdab-sabpred/sabdab/nano/?all=true"
 antiBodiesCounter = 0
 nanoBodiesCounter = 0
 combinedBodiesCounter = 0
 failedBodiesCounter = 0  
 recordsCount = 0
 allRecords = getAllRecords()
-for index, row in allRecords.iterrows():
+from selenium import webdriver
+from selenium.webdriver.chrome.service import Service
+from webdriver_manager.chrome import ChromeDriverManager
+from selenium.webdriver.support.ui import WebDriverWait
+from selenium.webdriver.support import expected_conditions as EC
+from selenium.webdriver.common.by import By
+
+options = webdriver.ChromeOptions()
+options.add_argument("--headless")  # Optional: run Chrome in headless mode
+processed_pdbs = get_processed_pdbs()
+
+driver = webdriver.Chrome(service=Service(ChromeDriverManager().install()), options=options)
+# WebDriverWait(driver, 10).until(EC.presence_of_element_located((By.ID, f"collapse_{fvIndex}")))
+os.makedirs("errors_html", exist_ok=True)
+from tqdm import tqdm
+
+for index, row in tqdm(allRecords.iterrows(), total=len(allRecords), desc="Processing PDBs"):
+    pdb_code = row['PDB']
+    if pdb_code in processed_pdbs:
+        print(f"{pdb_code} already processed. Skipping.")
+        continue
     try:
         recordsCount+=1
         print("Record number "+str(recordsCount) + ": Calling  "+row['PDB']+" page to be saved ... ")
         pdbEndpoint = "webapps/sabdab-sabpred/sabdab/structureviewer/?pdb="+row['PDB']
-        # pdbEndpoint = "webapps/sabdab-sabpred/sabdab/structureviewer/?pdb=1g9e"    
-        url = requests.get(baseUrl+pdbEndpoint)
-        soup = BeautifulSoup(url.content, "html.parser")
+        # https://opig.stats.ox.ac.uk/webapps/sabdab-sabpred/sabdab/structureviewer/?pdb=8s2t
+        # webapps/sabdab-sabpred/sabdab/structureviewer/?pdb="+row['PDB']
+        # pdbEndpoint = "webapps/sabdab-sabpred/sabdab/structureviewer/?pdb=1g9e"
+
+        options = webdriver.ChromeOptions()
+        options.add_argument("--headless")
+        driver = webdriver.Chrome(service=Service(ChromeDriverManager().install()), options=options)
+        # WebDriverWait(driver, 10).until(EC.presence_of_element_located((By.ID, f"collapse_{fvIndex}")))
+
+        # driver.get(baseUrl + pdbEndpoint)
+        full_url = baseUrl + pdbEndpoint
+        print(f"Loading URL: {full_url}")
+        driver.get(full_url)
+        html = driver.page_source
+        soup = BeautifulSoup(html, "lxml")
         # get basic details table 
         pdbDetailsTableDiv = soup.find(id="details")
         pdbDetailsTableRows = pdbDetailsTableDiv.find('table').find_all('tr')
+        print("pdbDetailsTableRows", pdbDetailsTableRows)
         wholeData = {}
         tds = [row.findAll('td') for row in pdbDetailsTableRows]
         wholeData["basic_data"] = { td[0].string: td[1].string for td in tds }
-        # loop on fvs to get its data
+        # loop on fvs to get its data_prev
         for fvIndex in range(int(wholeData["basic_data"]["Number of Fvs"])):
             #collapse_0 is the first fv, collapse_1 is the second fv and so on
-            collapseDivId = "collapse_"+str(fvIndex)
+            WebDriverWait(driver, 10).until(EC.presence_of_element_located((By.ID, f"collapse_{fvIndex}")))
+            # collapseDivId = "collapse_"+str(fvIndex)
+            collapseDivId = f"collapse_{fvIndex}"
             pdbFvDiv = soup.find(id=collapseDivId)
+            if pdbFvDiv is None:
+                raise ValueError(f"Missing Fv div for ID: {collapseDivId}")
+            # pdbFvDiv = soup.find(id=collapseDivId)
 
             fvData = getFvData(pdbFvDiv)
             wholeData["fv_"+str(fvIndex)] = fvData
 
         recordType = getRecordType(wholeData)
+        fvsNumber = int(wholeData["basic_data"]["Number of Fvs"])
+        pdb_code = wholeData["basic_data"]["PDB"]
+
+        if is_pdb_processed(recordType, fvsNumber, pdb_code):
+            print(f"{pdb_code} already processed. Skipping.")
+            continue
+
         writeDataToCSV(recordType, wholeData)
     except Exception as e:
+        with open(f"errors_html/{row['PDB']}.html", "w", encoding="utf-8") as f:
+            f.write(driver.page_source)
         with open('errors.txt', 'a') as log:
             log.write(row['PDB']+ " falied to be loaded > "+str(e))
             failedBodiesCounter+=1

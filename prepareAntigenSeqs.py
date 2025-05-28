@@ -5,7 +5,7 @@ with open('data/asPICKLE/data_filter.pickle', 'rb') as binary_reader:
 
 # extract the complexes with antibody identity 98% from data_filter
 # 1. read the nanobody_seqs_98.fasta to get the PDB id of the complexes
-fasta_file_path = 'data/asFASTA/nanobody_seqs_98.fasta'
+fasta_file_path = 'data/asFasta/nanobody_seqs_98_nocdhit.fasta'  # 'data_prev/asFASTA/nanobody_seqs_98.fasta'
 PDB = ''
 PDBs = []
 

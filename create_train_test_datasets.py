@@ -1,179 +1,145 @@
 import pickle
+import os
+import glob
+import pandas as pd
 from sklearn.model_selection import train_test_split
 import random
-from random import sample
+from tqdm import tqdm
+
+
 random.seed(123)
 
+def merge_cdrs(cdr1, cdr2, cdr3, linker="XXX"):
+    return (cdr1 or "") + linker + (cdr2 or "") + linker + (cdr3 or "")
+
+# Load all CSVs from data/nano into one DataFrame
+nano_files = glob.glob("data/nano/*.csv")
+df_list = [pd.read_csv(f) for f in nano_files]
+all_data = pd.concat(df_list, ignore_index=True)
+all_data.dropna(subset=["pdb"], inplace=True)
+# Drop duplicates by keeping the first occurrence (or you can aggregate if needed)
+all_data_unique = all_data.drop_duplicates(subset="pdb", keep="first")
+all_data_unique.set_index("pdb", inplace=True)
+record_dict = all_data_unique.to_dict(orient="index")
+
+# Load cluster and binding info
 with open('data/asPICKLE/clusters.pickle', 'rb') as binary_reader:
-    clusters = pickle.load(binary_reader)
+    clusters_raw = pickle.load(binary_reader)
 
 with open('data/asPICKLE/intra_group_binding.pickle', 'rb') as binary_reader:
-    intra_group_binding = pickle.load(binary_reader)
+    intra_pairs = pickle.load(binary_reader)
 
 with open('data/asPICKLE/inter_group_binding.pickle', 'rb') as binary_reader:
-    inter_group_binding = pickle.load(binary_reader)
+    inter_pairs = pickle.load(binary_reader)
 
-train_pos = []
-test_pos = []
-for cluster in clusters:
-    train, test = train_test_split(
-        cluster, test_size=0.2, random_state=123)  # 80% train , 20% test
-    train_pos.append(train)
-    test_pos.append(test)
+# Resolve clusters to full 6-element data
+clusters = []
+for cluster in clusters_raw:
+    resolved_cluster = []
+    for pdb1 in cluster:
+        try:
+            r1 = record_dict[pdb1]
+            item = (
+                r1["Hchain_sequence"], r1["CDRH1"], r1["CDRH2"], r1["CDRH3"],
+                r1["Antigen sequence_1"], pdb1
+            )
+            resolved_cluster.append(item)
+        except KeyError:
+            continue
+    clusters.append(resolved_cluster)
 
-train, test = train_test_split(
-    intra_group_binding, test_size=0.2, random_state=123)  # 80% train , 20% test
-train_pos.append(train)
-test_pos.append(test)
+# Resolve intra-group pairs
+resolved_intra = []
+for pdb1, pdb2 in intra_pairs:
+    try:
+        r1 = record_dict[pdb1]
+        item = (
+            r1["Hchain_sequence"], r1["CDRH1"], r1["CDRH2"], r1["CDRH3"],
+            r1["Antigen sequence_1"], pdb1
+        )
+        resolved_intra.append(item)
+    except KeyError:
+        continue
 
-total_pos = 0
-for cls in clusters:
-    total_pos = total_pos + len(cls)
+# Resolve inter-group pairs
+resolved_inter = []
+for pdb1, pdb2 in inter_pairs:
+    try:
+        r1 = record_dict[pdb1]
+        item = (
+            r1["Hchain_sequence"], r1["CDRH1"], r1["CDRH2"], r1["CDRH3"],
+            r1["Antigen sequence_1"], pdb1
+        )
+        resolved_inter.append(item)
+    except KeyError:
+        continue
 
-total_pos = total_pos + len(intra_group_binding)
+# Split into train/test
+train_pos, test_pos = [], []
+for cluster in tqdm(clusters, desc="Splitting clusters"):
+    if len(cluster) == 0:
+        continue  # avoid empty clusters
+    tr, te = train_test_split(cluster, test_size=0.2, random_state=123)
+    train_pos.extend(tr)
+    test_pos.extend(te)
 
-total_train_pos = 0
-for T_P in train_pos:
-    total_train_pos = total_train_pos + len(T_P)
+tr, te = train_test_split(resolved_intra, test_size=0.2, random_state=123)
+train_pos.extend(tr)
+test_pos.extend(te)
 
-total_test_pos = 0
-for T_P in test_pos:
-    total_test_pos = total_test_pos + len(T_P)
+# Sample negative pairs equal to total positives
+neg_data = random.sample(resolved_inter, len(train_pos) + len(test_pos))
 
-t_train_pos = total_pos * 0.8
-t_test_pos = total_pos * 0.2
+# Label the data
+train_data_pos = [(i[0], i[1], i[2], i[3], i[4], 1) for i in train_pos]
+test_data_pos  = [(i[0], i[1], i[2], i[3], i[4], 1) for i in test_pos]
+train_data_neg, test_data_neg = train_test_split(neg_data, test_size=0.2, random_state=123)
+train_data_neg = [(i[0], i[1], i[2], i[3], i[4], 0) for i in train_data_neg]
+test_data_neg  = [(i[0], i[1], i[2], i[3], i[4], 0) for i in test_data_neg]
 
-neg_data = []
-for _ in range(total_pos):
-    item = sample(inter_group_binding, 1)[0]
-    item_ = (item[0], item[1], item[2], item[3], item[4], item[5], 0)
-    neg_data.append(item_)
+# Split validation from training
+train_data_pos, val_data_pos = train_test_split(train_data_pos, test_size=0.05, random_state=123)
+train_data_neg, val_data_neg = train_test_split(train_data_neg, test_size=0.05, random_state=123)
 
-train_data_pos = []
-test_data_pos = []
-for l in train_pos:
-    for item in l:
-        item_ = (item[0], item[1], item[2], item[3], item[4], item[5], 1)
-        train_data_pos.append(item_)
+# Save labeled sets
+os.makedirs("data/asPICKLE", exist_ok=True)
+pickle.dump(train_data_pos, open("data/asPICKLE/train_data_pos.pickle", "wb"))
+pickle.dump(val_data_pos, open("data/asPICKLE/val_data_pos.pickle", "wb"))
+pickle.dump(test_data_pos, open("data/asPICKLE/test_data_pos.pickle", "wb"))
 
-for l in test_pos:
-    for item in l:
-        item_ = (item[0], item[1], item[2], item[3], item[4], item[5], 1)
-        test_data_pos.append(item_)
+pickle.dump(train_data_neg, open("data/asPICKLE/train_data_neg.pickle", "wb"))
+pickle.dump(val_data_neg, open("data/asPICKLE/val_data_neg.pickle", "wb"))
+pickle.dump(test_data_neg, open("data/asPICKLE/test_data_neg.pickle", "wb"))
 
-train_data_neg, test_data_neg = train_test_split(
-    neg_data, test_size=0.2, random_state=123)  # 80% train , 20% test
+# Combine + shuffle
+train_data_all = train_data_pos + train_data_neg
+val_data_all = val_data_pos + val_data_neg
+test_data_all = test_data_pos + test_data_neg
 
-train_data_pos, val_data_pos = train_test_split(
-    train_data_pos, test_size=0.05, random_state=123)  # 95% train , 5% validation
-
-train_data_neg, val_data_neg = train_test_split(
-    train_data_neg, test_size=0.05, random_state=123)  # 95% train , 5% validation
-
-with open('data/asPICKLE/train_data_pos.pickle', 'wb') as binary_writer:
-    pickle.dump(train_data_pos, binary_writer)
-with open('data/asPICKLE/val_data_pos.pickle', 'wb') as binary_writer:
-    pickle.dump(val_data_pos, binary_writer)
-with open('data/asPICKLE/test_data_pos.pickle', 'wb') as binary_writer:
-    pickle.dump(test_data_pos, binary_writer)
-
-with open('data/asPICKLE/train_data_neg.pickle', 'wb') as binary_writer:
-    pickle.dump(train_data_neg, binary_writer)
-with open('data/asPICKLE/val_data_neg.pickle', 'wb') as binary_writer:
-    pickle.dump(val_data_neg, binary_writer)
-with open('data/asPICKLE/test_data_neg.pickle', 'wb') as binary_writer:
-    pickle.dump(test_data_neg, binary_writer)
-
-print('size of pos data is ', total_pos)
-print('size of train pos data is ', str(len(train_data_pos)))
-print('size of val pos data is ', str(len(val_data_pos)))
-print('size of test pos data is ', str(len(test_data_pos)))
-
-print('size of neg data is ', str(len(neg_data)))
-print('size of train neg data is ', str(len(train_data_neg)))
-print('size of val neg data is ', str(len(val_data_neg)))
-print('size of test neg data is ', str(len(test_data_neg)))
-
-
-# combine the positive and negative samples and shuffle them  for each dataset (train, val, test)
-train_data_all = []
-val_data_all = []
-test_data_all = []
-
-for item in train_data_pos:
-    train_data_all.append(item)
-for item in train_data_neg:
-    train_data_all.append(item)
 random.shuffle(train_data_all)
-
-for item in val_data_pos:
-    val_data_all.append(item)
-for item in val_data_neg:
-    val_data_all.append(item)
 random.shuffle(val_data_all)
-
-for item in test_data_pos:
-    test_data_all.append(item)
-for item in test_data_neg:
-    test_data_all.append(item)
 random.shuffle(test_data_all)
 
-with open('data/asPICKLE/train_data_all.pickle', 'wb') as binary_writer:
-    pickle.dump(train_data_all, binary_writer)
-with open('data/asPICKLE/val_data_all.pickle', 'wb') as binary_writer:
-    pickle.dump(val_data_all, binary_writer)
-with open('data/asPICKLE/test_data_all.pickle', 'wb') as binary_writer:
-    pickle.dump(test_data_all, binary_writer)
+pickle.dump(train_data_all, open("data/asPICKLE/train_data_all.pickle", "wb"))
+pickle.dump(val_data_all, open("data/asPICKLE/val_data_all.pickle", "wb"))
+pickle.dump(test_data_all, open("data/asPICKLE/test_data_all.pickle", "wb"))
 
-print('size of train data is ', str(len(train_data_all)))
-print('size of val data is ', str(len(val_data_all)))
-print('size of test data is ', str(len(test_data_all)))
+# Format for model input: (ID, merged_CDRs, Ag_seq, label)
+def format_model_data(data):
+    return [
+        (item[0], merge_cdrs(item[1], item[2], item[3]), item[4], item[5])
+        for item in data
+    ]
 
-# separate the CDRs with it's number
-train_CDR_antigen = []
-val_CDR_antigen = []
-test_CDR_antigen = []
+train_CDR_antigen = format_model_data(train_data_all)
+val_CDR_antigen   = format_model_data(val_data_all)
+test_CDR_antigen  = format_model_data(test_data_all)
 
-def merge_cdrs(cdr1, cdr2, cdr3, linker="XXX"):
-    return cdr1 + linker + cdr2 + linker + cdr3
+pickle.dump(train_CDR_antigen, open("data/asPICKLE/train_CDR123_antigen.pickle", "wb"))
+pickle.dump(val_CDR_antigen, open("data/asPICKLE/val_CDR123_antigen.pickle", "wb"))
+pickle.dump(test_CDR_antigen, open("data/asPICKLE/test_CDR123_antigen.pickle", "wb"))
 
-for item in train_data_all:
-    CDR_1 = (item[0], item[1], item[2], item[5], item[6], 1)
-    CDR_2 = (item[0], item[1], item[3], item[5], item[6], 2)
-    CDR_3 = (item[0], item[1], item[4], item[5], item[6], 3)
-    train_CDR_antigen.append(CDR_1)
-    train_CDR_antigen.append(CDR_2)
-    train_CDR_antigen.append(CDR_3)
-random.shuffle(train_CDR_antigen)
-
-for item in val_data_all:
-    CDR_1 = (item[0], item[1], item[2], item[5], item[6], 1)
-    CDR_2 = (item[0], item[1], item[3], item[5], item[6], 2)
-    CDR_3 = (item[0], item[1], item[4], item[5], item[6], 3)
-    val_CDR_antigen.append(CDR_1)
-    val_CDR_antigen.append(CDR_2)
-    val_CDR_antigen.append(CDR_3)
-random.shuffle(val_CDR_antigen)
-
-for item in test_data_all:
-    CDR_1 = (item[0], item[1], item[2], item[5], item[6], 1)
-    CDR_2 = (item[0], item[1], item[3], item[5], item[6], 2)
-    CDR_3 = (item[0], item[1], item[4], item[5], item[6], 3)
-    test_CDR_antigen.append(CDR_1)
-    test_CDR_antigen.append(CDR_2)
-    test_CDR_antigen.append(CDR_3)
-random.shuffle(test_CDR_antigen)
-
-with open('data/asPICKLE/train_CDR_antigen.pickle', 'wb') as binary_writer:
-    pickle.dump(train_CDR_antigen, binary_writer)
-with open('data/asPICKLE/val_CDR_antigen.pickle', 'wb') as binary_writer:
-    pickle.dump(val_CDR_antigen, binary_writer)
-with open('data/asPICKLE/test_CDR_antigen.pickle', 'wb') as binary_writer:
-    pickle.dump(test_CDR_antigen, binary_writer)
-
-
-print('size of train_CDR_antigen data is ', str(len(train_CDR_antigen)))
-print('size of val_CDR_antigen data is ', str(len(val_CDR_antigen)))
-print('size of test_CDR_antigen data is ', str(len(test_CDR_antigen)))
-
-print('done')
+print("Dataset creation complete")
+print("Train:", len(train_CDR_antigen))
+print("Val:", len(val_CDR_antigen))
+print("Test:", len(test_CDR_antigen))

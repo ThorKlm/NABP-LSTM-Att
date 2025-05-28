@@ -72,38 +72,65 @@ class AttLayer(Layer):
 
 def get_model():
     cdrs_ids = Input(shape=(MAX_LEN_cdr,))
-    cdrs_number_ids = Input(shape=(MAX_LEN_cdr,))
-
     ags_ids = Input(shape=(MAX_LEN_ag,))
 
-    emb_cdr_ids = Embedding(NB_WORDS_cdr, EMBEDDING_DIM, trainable=True)(cdrs_ids)
-    emb_cdr_number_ids = Embedding(NB_cdr_number_ids, EMBEDDING_DIM, trainable=True)(cdrs_number_ids)
-
-    emb_cdr = Add()([emb_cdr_ids, emb_cdr_number_ids ])
+    emb_cdr = Embedding(NB_WORDS_cdr, EMBEDDING_DIM)(cdrs_ids)
     emb_cdr_bn = BatchNormalization()(emb_cdr)
     emb_cdr_dt = Dropout(dt_ratio)(emb_cdr_bn)
 
-    emb_ag_ids = Embedding(NB_WORDS_ag, EMBEDDING_DIM, trainable=True)(ags_ids)
-    emb_ag_bn = BatchNormalization()(emb_ag_ids)
+    emb_ag = Embedding(NB_WORDS_ag, EMBEDDING_DIM)(ags_ids)
+    emb_ag_bn = BatchNormalization()(emb_ag)
     emb_ag_dt = Dropout(dt_ratio)(emb_ag_bn)
 
-    cdr_conv_layer = Conv1D(filters = filters, kernel_size = cdr_kernel_size,padding = "valid",activation='relu')(emb_cdr_dt)
-    cdr_max_pool_layer = MaxPooling1D(pool_size = cdr_pool_size, strides = cdr_strides)(cdr_conv_layer)
+    cdr_conv = Conv1D(filters=filters, kernel_size=cdr_kernel_size, activation='relu')(emb_cdr_dt)
+    cdr_pool = MaxPooling1D(pool_size=cdr_pool_size, strides=cdr_strides)(cdr_conv)
 
-    ag_conv_layer = Conv1D(filters = filters, kernel_size = ag_kernel_size,padding = "valid",activation='relu')(emb_ag_dt)
-    ag_max_pool_layer = MaxPooling1D(pool_size = ag_pool_size, strides = ag_strides)(ag_conv_layer)
+    ag_conv = Conv1D(filters=filters, kernel_size=ag_kernel_size, activation='relu')(emb_ag_dt)
+    ag_pool = MaxPooling1D(pool_size=ag_pool_size, strides=ag_strides)(ag_conv)
 
-    merge_layer=Concatenate(axis=1)([cdr_max_pool_layer, ag_max_pool_layer])
-    bn=BatchNormalization()(merge_layer)
-    dt=Dropout(dt_ratio)(bn)
+    merged = Concatenate(axis=1)([cdr_pool, ag_pool])
+    merged = BatchNormalization()(merged)
+    merged = Dropout(dt_ratio)(merged)
 
-    l_lstm = Bidirectional(LSTM(lstm_size, return_sequences=True))(dt)
-    l_att = AttLayer(att_size)(l_lstm)
+    lstm_out = Bidirectional(LSTM(lstm_size, return_sequences=True))(merged)
+    att_out = AttLayer(att_size)(lstm_out)
+    output = Dense(1, activation='sigmoid')(att_out)
 
-    preds = Dense(1, activation='sigmoid')(l_att)
+    model = Model(inputs=[cdrs_ids, ags_ids], outputs=output)
+    model.compile(optimizer='adam', loss='binary_crossentropy')
+    return model
 
-    model = Model(inputs=[cdrs_ids, cdrs_number_ids, ags_ids],outputs= [preds])
 
-    model.compile(loss='binary_crossentropy',optimizer='adam')
+def merge_cdrs(cdr1, cdr2, cdr3, linker=''):
+    return cdr1 + linker + cdr2 + linker + cdr3
 
+def get_model_combined_cdrs():
+    cdrs_ids = Input(shape=(MAX_LEN_cdr,))  # e.g., 72 if 24 * 3 (CDR1+2+3)
+    ags_ids = Input(shape=(MAX_LEN_ag,))
+
+    emb_cdr = Embedding(NB_WORDS_cdr, EMBEDDING_DIM, trainable=True)(cdrs_ids)
+    emb_cdr_bn = BatchNormalization()(emb_cdr)
+    emb_cdr_dt = Dropout(dt_ratio)(emb_cdr_bn)
+
+    emb_ag = Embedding(NB_WORDS_ag, EMBEDDING_DIM, trainable=True)(ags_ids)
+    emb_ag_bn = BatchNormalization()(emb_ag)
+    emb_ag_dt = Dropout(dt_ratio)(emb_ag_bn)
+
+    cdr_conv = Conv1D(filters=filters, kernel_size=cdr_kernel_size, activation='relu')(emb_cdr_dt)
+    cdr_pool = MaxPooling1D(pool_size=cdr_pool_size, strides=cdr_strides)(cdr_conv)
+
+    ag_conv = Conv1D(filters=filters, kernel_size=ag_kernel_size, activation='relu')(emb_ag_dt)
+    ag_pool = MaxPooling1D(pool_size=ag_pool_size, strides=ag_strides)(ag_conv)
+
+    merged = Concatenate(axis=1)([cdr_pool, ag_pool])
+    bn = BatchNormalization()(merged)
+    dt = Dropout(dt_ratio)(bn)
+
+    lstm_out = Bidirectional(LSTM(lstm_size, return_sequences=True))(dt)
+    attention_out = AttLayer(att_size)(lstm_out)
+
+    preds = Dense(1, activation='sigmoid')(attention_out)
+
+    model = Model(inputs=[cdrs_ids, ags_ids], outputs=[preds])
+    model.compile(loss='binary_crossentropy', optimizer='adam')
     return model
